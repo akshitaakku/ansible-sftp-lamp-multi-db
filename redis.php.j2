@@ -1,0 +1,53 @@
+<?php
+require 'vendor/autoload.php';
+
+use Predis\Client;
+
+// Redis configuration
+$redis = new Client([
+    'scheme' => 'tcp',
+    'host'   => '127.0.0.1',
+    'port'   => 6379,
+    'password' => '{{ redis_password }}'
+]);
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Sanitize input
+    $key = htmlspecialchars($_POST['key']);
+    $value = htmlspecialchars($_POST['value']);
+
+    // Save key-value pair to Redis
+    $redis->set($key, $value);
+
+    echo "Data saved to Redis successfully";
+}
+
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enter Key and Value for Redis</title>
+</head>
+<body>
+    <h2>Enter Key and Value</h2>
+    <form method="post" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+        <table>
+            <tr>
+                <td>Key:</td>
+                <td><input type="text" name="key" required></td>
+            </tr>
+            <tr>
+                <td>Value:</td>
+                <td><input type="text" name="value" required></td>
+            </tr>
+            <tr>
+                <td colspan="2" style="text-align: center;">
+                    <input type="submit" value="Submit">
+                </td>
+            </tr>
+        </table>
+    </form>
+</body>
+</html>
+

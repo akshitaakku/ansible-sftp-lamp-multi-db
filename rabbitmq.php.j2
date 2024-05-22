@@ -1,0 +1,59 @@
+<?php
+require __DIR__ . '/vendor/autoload.php';
+
+use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Message\AMQPMessage;
+
+$host = 'localhost';
+$port = 5672;
+$user = '{{ rabbitmq_user }}';
+$pass = '{{ rabbitmq_password }}';
+$vhost = '/';
+
+// Establish connection
+try {
+    $connection = new AMQPStreamConnection($host, $port, $user, $pass, $vhost);
+    $channel = $connection->channel();
+
+    // Default queue name
+    $queueName = 'queue1';
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        // Get message from the form
+        $message = htmlspecialchars($_POST['message']);
+
+        // Declare the queue
+        $channel->queue_declare($queueName, false, true, false, false);
+
+        // Create a new message
+        $msg = new AMQPMessage($message);
+
+        // Publish the message to the queue
+        $channel->basic_publish($msg, '', $queueName);
+
+        echo "Message sent to queue '$queueName': $message";
+    }
+
+    // Close connection
+    $channel->close();
+    $connection->close();
+} catch (Exception $e) {
+    echo 'Caught exception: ',  $e->getMessage(), "\n";
+}
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Send Message to RabbitMQ Queue</title>
+</head>
+<body>
+    <h2>Send Message to RabbitMQ Queue</h2>
+    <form method="post" action="">
+        <label for="message">Message:</label><br>
+        <textarea id="message" name="message" rows="4" cols="50" required></textarea><br><br>
+        <input type="submit" value="Send Message">
+    </form>
+</body>
+</html>
+

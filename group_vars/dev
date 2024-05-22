@@ -1,0 +1,7 @@
+sftp_user_password: "sarv@123"
+
+current_root_password: "" 
+mysql_root_password: "mysql@123"
+mysql_db: "mysql-data"
+mysql_user: "akshita"
+mysql_password: "db@123"

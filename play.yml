@@ -1,0 +1,242 @@
+---
+- name: Configure SFTP server and install additional services
+  hosts: dev
+  vars_prompt:
+    - name: usernames
+      prompt: "Enter comma-separated list of usernames for SFTP access (at least 5):"
+    - name: redis_password
+      prompt: "Enter password for Redis authentication:"
+    - name: rabbitmq_user
+      prompt: "Enter RabbitMQ username:"
+    - name: rabbitmq_password
+      prompt: "Enter RabbitMQ password:"
+      #  - name: rabbitmq_queue
+      #prompt: "Enter Rabbitmq queue name:"
+
+  tasks:
+    - name: Split usernames into a list
+      set_fact:
+        user_list: "{{ usernames.split(',') }}"
+      when: usernames.split(',') | length >= 5
+
+    - name: Ensure there are at least 5 usernames provided
+      fail:
+        msg: "Please provide at least 5 usernames separated by commas."
+      when: user_list is not defined
+
+    - name: Create SFTP users
+      user:
+        name: "{{ item }}"
+        shell: /bin/false
+        createhome: yes
+      loop: "{{ user_list }}"
+
+    - name: Set fixed password for SFTP users
+      user:
+        name: "{{ item }}"
+        password: "{{ sftp_user_password | password_hash('sha512') }}"
+        update_password: always
+      loop: "{{ user_list }}"
+
+    - name: Set ownership and permissions for SFTP user home directories
+      file:
+        path: "/home/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ user_list }}"
+
+    - name: Create writable subdirectory for SFTP users
+      file:
+        path: "/home/{{ item }}/uploads"
+        owner: "{{ item }}"
+        group: "{{ item }}"
+        mode: '0755'
+        state: directory
+      loop: "{{ user_list }}"
+      
+    - name: Gather SSHD configurations for SFTP users
+      set_fact:
+        sshd_user_config: |
+          {% for user in user_list %}
+          Match User {{ user }}
+          ForceCommand internal-sftp
+          PasswordAuthentication yes
+          ChrootDirectory %h
+          AllowAgentForwarding no
+          AllowTcpForwarding no
+          X11Forwarding no
+          {% endfor %}
+
+    - name: Ensure sshd_config allows SFTP for all users
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        block: "{{ sshd_user_config }}"
+        insertafter: EOF
+      notify:
+        - restart sshd
+
+    - name: Install reqiure package
+      apt:
+        name:
+          - mysql-server
+          - python3-mysqldb
+          - redis-server
+          - rabbitmq-server
+          - apache2
+          - php
+          - libapache2-mod-php
+          - php-mysql
+          - composer
+        state: present
+
+    - name: Enable and start services
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - mysql
+        - redis
+        - rabbitmq-server
+        - apache2
+
+    - name: "updating root password for mysql"
+      ignore_errors: true
+      mysql_user:
+        login_user: "root"
+        login_password: "{{ mysql_root_password }}"
+        name: "root"
+        password: ""
+        host_all: true
+
+
+    - name: "removing anonymous users from mysql"
+      mysql_user:
+        login_user: "root"
+        login_password: "{{ mysql_root_password }}"
+        name: ""
+        password: ""
+        host_all: true
+        state: absent
+
+    - name: "creating database for mysql"
+      mysql_db:
+        login_user: "root"
+        login_password: "{{ mysql_root_password }}"
+        name: "{{ mysql_db }}"
+        state: present
+
+    - name: "creating user for mysql"
+      mysql_user:
+        login_user: "root"
+        login_password: "{{ mysql_root_password }}"
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_password }}"
+        state: present
+        host: "%"
+        priv: "{{ mysql_db }}.*:ALL"
+      notify: restarting services
+
+    - name: Create MySQL table
+      mysql_query:
+        login_user: "{{ mysql_user }}"
+        login_password: "{{ mysql_password }}"
+        query: "CREATE TABLE IF NOT EXISTS `{{ mysql_db }}`.my_table (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), email VARCHAR(255))"
+      register: create_table_result
+      ignore_errors: true
+      notify: restart_apache
+
+
+    - name: Create Jinja template for mysql.php
+      template:
+        src: mysql.php.j2
+        dest: /var/www/html/mysql.php
+      notify: restart_apache
+
+    - name: Install Predis via Composer
+      command: composer require predis/predis
+      args:
+        chdir: /var/www/html
+
+    - name: Create Jinja template for redis.php
+      template:
+        src: redis.php.j2
+        dest: /var/www/html/redis.php
+      notify: restart_apache
+
+    - name: Configure Redis authentication
+      blockinfile:
+        path: /etc/redis/redis.conf
+        block: |
+          requirepass {{ redis_password }}
+        marker: "# {mark} ANSIBLE MANAGED BLOCK -- Do not edit this section"
+
+    - name: Ensure Redis service is restarted after configuration change
+      service:
+        name: redis
+        state: restarted
+
+    - name: Install php-amqplib via Composer
+      command: composer require php-amqplib/php-amqplib
+      args:
+        chdir: /var/www/html
+
+    - name: Create Jinja template for rabbitmq.php
+      template:
+        src: rabbitmq.php.j2
+        dest: /var/www/html/rabbitmq.php
+      notify: restart_apache
+
+    - name: Create RabbitMQ user
+      community.rabbitmq.rabbitmq_user:
+        user: "{{ rabbitmq_user }}"
+        password: "{{ rabbitmq_password }}"
+        tags: administrator
+        state: present
+
+    - name: Set RabbitMQ permissions for the user
+      community.rabbitmq.rabbitmq_user:
+        user: "{{ rabbitmq_user }}"
+        vhost: "/"
+        configure_priv: ".*"
+        write_priv: ".*"
+        read_priv: ".*"
+        tags: administrator
+        state: present
+
+    - name: Enable RabbitMQ management plugin
+      community.rabbitmq.rabbitmq_plugin:
+        name: rabbitmq_management
+        state: enabled
+      notify: restart_rabbitmq
+
+    - name: Delete RabbitMQ guest user
+      ignore_errors: true
+      command: rabbitmqctl delete_user guest
+      become: yes
+      notify: restart_rabbitmq
+
+  handlers:
+    - name: "restarting services"
+      service:
+        name: "{{ item }}"
+        state: restarted
+        enabled: true
+      loop:
+        - mysql.server  
+
+    - name: restart sshd
+      service:
+        name: ssh
+        state: restarted
+
+    - name: restart_rabbitmq
+      service:
+        name: rabbitmq-server
+        state: restarted
+
+    - name: restart_apache
+      service:
+        name: apache2
+        state: restarted

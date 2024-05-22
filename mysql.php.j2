@@ -1,0 +1,62 @@
+<?php
+$servername = "localhost";
+$username = "{{ mysql_user }}";
+$password = "{{ mysql_password }}";
+$dbname = "{{ mysql_db }}";
+
+// Create connection
+$conn = new mysqli($servername, $username, $password, $dbname);
+
+// Check connection
+if ($conn->connect_error) {
+  die("Connection failed: " . $conn->connect_error);
+}
+
+// Create table
+$sql = "CREATE TABLE IF NOT EXISTS `{{ mysql_db }}`.my_table (
+id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+name VARCHAR(30) NOT NULL,
+email VARCHAR(50) NOT NULL,
+reg_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+)";
+
+if ($conn->query($sql) === TRUE) {
+  echo "Table my_table created successfully";
+} else {
+  echo "Error creating table: " . $conn->error;
+}
+
+// Insert data
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+  $name = $_POST['name'];
+  $email = $_POST['email'];
+
+  $stmt = $conn->prepare("INSERT INTO `{{ mysql_db }}`.my_table (name, email) VALUES (?, ?)");
+  $stmt->bind_param("ss", $name, $email);
+
+  if ($stmt->execute()) {
+    echo "New record created successfully";
+  } else {
+    echo "Error: " . $stmt->error;
+  }
+
+  $stmt->close();
+}
+
+$conn->close();
+?>
+
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>MySQL Data Entry</h2>
+<form method="post" action="<?php echo $_SERVER['PHP_SELF'];?>">
+  Name: <input type="text" name="name">
+  Email: <input type="text" name="email">
+  <input type="submit">
+</form>
+
+</body>
+</html>
+
