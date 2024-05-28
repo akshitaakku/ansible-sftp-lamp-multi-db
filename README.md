@@ -1,14 +1,14 @@
 Ansible Playbook: SFTP and LAMP Setup with Multiple Databases
 This Ansible playbook automates the configuration of an SFTP server for multiple users, along with setting up a LAMP stack (Linux, Apache, MySQL, PHP) for different databases including MySQL, Redis, and RabbitMQ. It also includes inserting data into these databases via a web server.
 
-Table of Contents
-Description
-Prerequisites
-Usage
-Files
-Variables
-Contributing
-Description
+Table of Contents:
+Description,
+Prerequisites,
+Usage,
+Files,
+Variables,
+Contributing,
+Description,
 This playbook performs the following tasks:
 
 Configures SFTP server for multiple users with isolated home directories.
