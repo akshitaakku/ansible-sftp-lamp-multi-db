@@ -10,8 +10,6 @@
       prompt: "Enter RabbitMQ username:"
     - name: rabbitmq_password
       prompt: "Enter RabbitMQ password:"
-      #  - name: rabbitmq_queue
-      #prompt: "Enter Rabbitmq queue name:"
 
   tasks:
     - name: Split usernames into a list
@@ -216,6 +214,14 @@
       command: rabbitmqctl delete_user guest
       become: yes
       notify: restart_rabbitmq
+
+    - name: Set PHP memory limit to 512MB
+      lineinfile:
+        path: /etc/php/7.4/apache2/php.ini
+        regexp: '^memory_limit ='
+        line: "memory_limit = 512M"
+        state: present
+      notify: restart_apache
 
   handlers:
     - name: "restarting services"
